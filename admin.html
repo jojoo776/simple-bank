@@ -1,0 +1,292 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Admin — Pending & Riwayat Deposits (Auth)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root{ --bg:#ffffff; --muted:#666; --accent:#0891b2; --card:#f8fafc }
+    body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial;background:#f6f7fb;color:#111;padding:18px}
+    .wrap{max-width:1100px;margin:0 auto}
+    h2{margin:0 0 10px}
+    .card{background:#fff;border-radius:10px;padding:12px;border:1px solid #e6e9ef;margin-bottom:12px}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    input[type="text"], input[type="password"]{padding:8px;border:1px solid #ddd;border-radius:6px}
+    button{padding:8px 10px;border-radius:6px;border:0;background:linear-gradient(90deg,var(--accent),#06b6d4);color:#042027;cursor:pointer}
+    .ghost{background:transparent;border:1px solid rgba(0,0,0,0.08);color:var(--muted)}
+    table{width:100%;border-collapse:collapse;margin-top:8px}
+    th,td{padding:8px;border:1px solid #e9edf2;font-size:14px}
+    .small{font-size:13px;color:var(--muted)}
+    .tabs{display:flex;gap:8px;margin-bottom:10px}
+    .tab{padding:8px 10px;border-radius:8px;cursor:pointer;background:#f3f6f8;border:1px solid #e6e9ef}
+    .tab.active{background:linear-gradient(90deg,var(--accent),#06b6d4);color:#042027;font-weight:700}
+    .authbox{display:flex;gap:8px;align-items:center}
+    .authbox > *{margin-right:8px}
+    @media(max-width:720px){ .row{flex-direction:column;align-items:stretch} .authbox{flex-direction:column;align-items:stretch} }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h2>Admin Panel — Pending & Riwayat Deposits</h2>
+
+    <!-- Admin auth (register/login) -->
+    <div class="card" id="authCard">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+        <div>
+          <div style="font-weight:700">Admin Authentication</div>
+          <div class="small" style="margin-top:6px">Register (requires Master Admin Key) or Login to get admin token.</div>
+        </div>
+
+        <div class="authbox">
+          <input id="masterAdminKey" placeholder="Master Admin Key (for register)" style="width:220px" />
+          <input id="regUsername" placeholder="new admin username" style="width:180px" />
+          <input id="regPassword" placeholder="password" type="password" style="width:160px" />
+          <button id="btnAdminRegister">Register Admin</button>
+
+          <div style="width:12px"></div>
+
+          <input id="loginUsername" placeholder="username" style="width:160px" />
+          <input id="loginPassword" placeholder="password" type="password" style="width:160px" />
+          <button id="btnAdminLogin">Login</button>
+          <button id="btnAdminLogout" class="ghost" style="display:none">Logout</button>
+        </div>
+      </div>
+      <div id="adminMsg" class="small" style="margin-top:8px;color:var(--muted)"></div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div class="tabs">
+            <div class="tab active" id="tabPending">Pending Deposits</div>
+            <div class="tab" id="tabHistory">Riwayat Deposit</div>
+          </div>
+          <div class="small">Gunakan refresh untuk memuat ulang data</div>
+        </div>
+        <div>
+          <button id="btnRefresh">Refresh</button>
+        </div>
+      </div>
+
+      <div id="content" style="margin-top:12px">
+        <!-- pending list container -->
+        <div id="pendingSection"></div>
+
+        <!-- history list container -->
+        <div id="historySection" style="display:none;margin-top:10px"></div>
+      </div>
+    </div>
+
+    <!-- helpful note -->
+    <div class="card">
+      <div style="font-weight:700">Catatan</div>
+      <div class="small" style="margin-top:8px">
+        - Setelah login, admin token disimpan di browser dan digunakan otomatis untuk semua aksi admin.<br>
+        - Register admin memerlukan Master Admin Key (ENV ADMIN_KEY) agar tidak sembarang orang bisa membuat admin.
+      </div>
+    </div>
+  </div>
+
+<script>
+const api = '/api';
+
+// admin auth helpers
+function getStoredAdminToken(){ return localStorage.getItem('adminToken') || null; }
+function setStoredAdminToken(t){ if(t) localStorage.setItem('adminToken', t); else localStorage.removeItem('adminToken'); }
+function getStoredAdminKey(){ return localStorage.getItem('adminKey') || ''; }
+function setStoredAdminKey(k){ if(k) localStorage.setItem('adminKey', k); else localStorage.removeItem('adminKey'); }
+
+// init UI
+document.getElementById('masterAdminKey').value = getStoredAdminKey();
+document.getElementById('adminMsg').innerText = '';
+
+function showAdminLoggedIn(username){
+  document.getElementById('btnAdminLogout').style.display = 'inline-block';
+  document.getElementById('btnAdminLogin').style.display = 'none';
+  document.getElementById('loginUsername').style.display = 'none';
+  document.getElementById('loginPassword').style.display = 'none';
+  document.getElementById('adminMsg').innerText = 'Logged in as ' + username;
+}
+function showAdminLoggedOut(){
+  document.getElementById('btnAdminLogout').style.display = 'none';
+  document.getElementById('btnAdminLogin').style.display = 'inline-block';
+  document.getElementById('loginUsername').style.display = '';
+  document.getElementById('loginPassword').style.display = '';
+  document.getElementById('adminMsg').innerText = '';
+}
+
+// on load: if token exists, try decode username (basic)
+(function checkAdminToken(){
+  const t = getStoredAdminToken();
+  if(!t) { showAdminLoggedOut(); return; }
+  try {
+    const payload = JSON.parse(atob(t.split('.')[1]));
+    if(payload && payload.username) showAdminLoggedIn(payload.username);
+    else showAdminLoggedIn('admin');
+  } catch(e){ showAdminLoggedIn('admin'); }
+})();
+
+// Register admin (requires master key header)
+document.getElementById('btnAdminRegister').addEventListener('click', async ()=>{
+  const master = document.getElementById('masterAdminKey').value.trim();
+  const username = document.getElementById('regUsername').value.trim();
+  const password = document.getElementById('regPassword').value;
+  if(!master || !username || !password){ alert('Isi semua field register'); return; }
+  try{
+    const res = await fetch(api + '/admin/register', {
+      method:'POST',
+      headers: { 'Content-Type':'application/json', 'x-admin-key': master },
+      body: JSON.stringify({ username, password })
+    });
+    const j = await res.json();
+    if(res.ok){ setStoredAdminKey(master); document.getElementById('masterAdminKey').value = master; alert('Admin terdaftar. Silakan login.'); }
+    else alert('Gagal: ' + (j.error || JSON.stringify(j)));
+  }catch(e){ alert('Error: ' + e.message); }
+});
+
+// Login admin
+document.getElementById('btnAdminLogin').addEventListener('click', async ()=>{
+  const username = document.getElementById('loginUsername').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  if(!username || !password){ alert('Isi username & password'); return; }
+  try{
+    const res = await fetch(api + '/admin/login', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const j = await res.json();
+    if(res.ok && j.token){ setStoredAdminToken(j.token); const payload = JSON.parse(atob(j.token.split('.')[1])); showAdminLoggedIn(payload.username || username); alert('Login sukses'); loadPending(); loadHistory(); }
+    else alert('Login gagal: ' + (j.error || JSON.stringify(j)));
+  }catch(e){ alert('Error: ' + e.message); }
+});
+
+// Logout admin
+document.getElementById('btnAdminLogout').addEventListener('click', ()=>{ setStoredAdminToken(null); showAdminLoggedOut(); alert('Logout'); });
+
+// tabs
+const tabPending = document.getElementById('tabPending');
+const tabHistory = document.getElementById('tabHistory');
+const pendingSection = document.getElementById('pendingSection');
+const historySection = document.getElementById('historySection');
+
+tabPending.addEventListener('click', ()=>{ tabPending.classList.add('active'); tabHistory.classList.remove('active'); pendingSection.style.display='block'; historySection.style.display='none'; loadPending(); });
+tabHistory.addEventListener('click', ()=>{ tabHistory.classList.add('active'); tabPending.classList.remove('active'); pendingSection.style.display='none'; historySection.style.display='block'; loadHistory(); });
+
+document.getElementById('btnRefresh').addEventListener('click', ()=>{ if(tabPending.classList.contains('active')) loadPending(); else loadHistory(); });
+
+// helper: build admin headers (prefer token over key)
+function adminHeaders(contentType = true){
+  const headers = {};
+  const token = getStoredAdminToken();
+  if(contentType) headers['Content-Type'] = 'application/json';
+  if(token) headers['Authorization'] = 'Bearer ' + token;
+  else {
+    const key = getStoredAdminKey() || document.getElementById('masterAdminKey').value.trim() || '';
+    if(key) headers['x-admin-key'] = key;
+  }
+  return headers;
+}
+
+// load pending
+async function loadPending(){
+  pendingSection.innerHTML = '<div class="small">Memuat pending...</div>';
+  try{
+    const res = await fetch(api + '/admin/deposits', { headers: adminHeaders(false) });
+    if(!res.ok){
+      const j = await res.json().catch(()=>({})); pendingSection.innerHTML = `<div class="small">Error: ${res.status} ${j.error||res.statusText}</div>`; return;
+    }
+    const rows = await res.json();
+    if(!rows || rows.length===0){ pendingSection.innerHTML = '<div class="small">Tidak ada pending</div>'; return; }
+    const html = ['<table><tr><th>ID</th><th>Akun</th><th>Jumlah</th><th>Created</th><th>Status</th><th>Proof</th><th>Aksi</th></tr>'];
+    rows.forEach(r=>{
+      const amount = Math.floor(r.amount/100).toLocaleString('id-ID');
+      const proof = r.proof_url ? `<a href="${r.proof_url}" target="_blank">Lihat</a>` : (r.proof_path ? r.proof_path : '-');
+      html.push(`<tr>
+        <td>${r.id}</td>
+        <td>${r.account_number}</td>
+        <td>Rp ${amount}</td>
+        <td>${r.created_at}</td>
+        <td>${r.status || ''}</td>
+        <td>${proof}</td>
+        <td><button onclick="approve(${r.id})">Approve</button> <button onclick="reject(${r.id})" class="ghost">Reject</button></td>
+      </tr>`);
+    });
+    html.push('</table>');
+    pendingSection.innerHTML = html.join('');
+  }catch(err){
+    console.error(err);
+    pendingSection.innerHTML = `<div class="small">Error memuat pending deposits. ${err.message}</div>`;
+  }
+}
+
+// approve + reject actions
+async function approve(id){
+  if(!confirm('Approve pending #' + id + '?')) return;
+  try{
+    const res = await fetch(api + '/admin/deposit/approve', {
+      method: 'POST',
+      headers: adminHeaders(),
+      body: JSON.stringify({ pending_id: id })
+    });
+    const j = await res.json();
+    if(res.ok){ alert('Approved'); loadPending(); loadHistory(); } else { alert('Gagal: ' + (j.error || JSON.stringify(j))); }
+  }catch(e){ alert('Error: ' + e.message); }
+}
+
+async function reject(id){
+  if(!confirm('Tandai pending #' + id + ' sebagai ditolak?')) return;
+  const reason = prompt('Alasan reject (opsional):', 'Bukti tidak valid') || '';
+  try{
+    const res = await fetch(api + '/admin/deposit/reject', {
+      method: 'POST',
+      headers: adminHeaders(),
+      body: JSON.stringify({ pending_id: id, reason })
+    });
+    const j = await res.json();
+    if(res.ok){ alert('Rejected'); loadPending(); loadHistory(); } else { alert('Gagal menolak: ' + (j.error || JSON.stringify(j))); }
+  }catch(e){ alert('Error: ' + e.message); }
+}
+
+// load history
+async function loadHistory(){
+  historySection.innerHTML = '<div class="small">Memuat riwayat deposit...</div>';
+  try{
+    const res = await fetch(api + '/admin/deposits_all', { headers: adminHeaders(false) });
+    if(!res.ok){ historySection.innerHTML = `<div class="small">Error: HTTP ${res.status} ${res.statusText}</div>`; return; }
+    const rows = await res.json();
+    if(!rows || rows.length === 0){ historySection.innerHTML = '<div class="small">Belum ada riwayat deposit (kosong)</div>'; return; }
+    renderHistoryTable(rows);
+  }catch(e){
+    historySection.innerHTML = `<div class="small">Error: ${e.message}</div>`;
+  }
+}
+
+function renderHistoryTable(rows){
+  const html = ['<div class="small">Riwayat deposit (terbaru di atas)</div><table><tr><th>ID</th><th>Akun</th><th>Jumlah</th><th>Status</th><th>Created</th><th>Confirmed/Rejected</th><th>Proof</th></tr>'];
+  rows.forEach(r=>{
+    const amount = (typeof r.amount === 'number') ? Math.floor(r.amount/100).toLocaleString('id-ID') : (r.amount || '');
+    const proof = r.proof_url ? `<a href="${r.proof_url}" target="_blank">Lihat</a>` : (r.proof_path ? r.proof_path : '-');
+    const confirmed = r.confirmed_at || '';
+    const rejected = r.rejected_at || '';
+    html.push(`<tr>
+      <td>${r.id || ''}</td>
+      <td>${r.account_number || ''}</td>
+      <td>Rp ${amount}</td>
+      <td>${r.status || ''}</td>
+      <td>${r.created_at || ''}</td>
+      <td>${confirmed || rejected || ''}</td>
+      <td>${proof}</td>
+    </tr>`);
+  });
+  html.push('</table>');
+  historySection.innerHTML = html.join('');
+}
+
+// init load
+document.getElementById('btnRefresh').addEventListener('click', ()=>{ if(tabPending.classList.contains('active')) loadPending(); else loadHistory(); });
+loadPending();
+</script>
+</body>
+</html>

@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Dashboard — Simple Bank</title>
+  <style>
+    :root{
+      --bg:#071022; --card:#071022; --accent:#06b6d4; --muted:#94a3b8;
+      --glass: rgba(255,255,255,0.025);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial;
+      color:#e6eef6;
+      background:linear-gradient(180deg,#06121b 0%,#071a2a 100%);
+      min-height:100vh;
+      padding:20px;
+    }
+    .container{max-width:1100px;margin:0 auto;display:grid;grid-template-columns:1fr 420px;gap:24px;align-items:start}
+    header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+    .brand{font-weight:700;color:var(--accent);font-size:20px}
+    .sub{color:var(--muted);font-size:13px}
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:14px;padding:18px;box-shadow:0 8px 30px rgba(2,6,23,0.6);border:1px solid rgba(255,255,255,0.04)}
+    .main .card{min-height:220px}
+    .field{display:flex;flex-direction:column;margin-bottom:10px}
+    label{font-size:13px;color:var(--muted);margin-bottom:6px}
+    input[type="text"], input[type="number"], input[type="password"]{padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:#e6eef6;outline:none}
+    .btn{padding:10px 14px;border-radius:10px;border:0;background:linear-gradient(90deg,var(--accent),#0891b2);color:#042027;font-weight:600;cursor:pointer}
+    .btn-ghost{padding:10px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--muted);cursor:pointer}
+    .row{display:flex;gap:8px}
+    .muted{color:var(--muted);font-size:13px}
+    .balance{font-size:20px;font-weight:700;color:#fff}
+    .txs{max-height:260px;overflow:auto;padding-top:6px}
+    .tx{padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.02);margin-bottom:8px;background:rgba(255,255,255,0.01)}
+    .small{font-size:12px;color:var(--muted)}
+    @media (max-width:980px){
+      .container{grid-template-columns:1fr; padding-bottom:40px}
+    }
+
+    /* modal styling (ke desain tidak mengubah layout utama) */
+    #depositModal{display:none;position:fixed;inset:0;background:rgba(2,6,23,0.6);backdrop-filter:blur(4px);align-items:center;justify-content:center;z-index:1200}
+    #depositModal .modal-box{width:100%;max-width:560px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:12px;padding:18px;border:1px solid rgba(255,255,255,0.04);box-shadow:0 10px 30px rgba(2,6,23,0.6);}
+    .file-preview{max-height:200px;overflow:auto;border:1px solid rgba(255,255,255,0.03);padding:8px;border-radius:8px;background:rgba(255,255,255,0.01);margin-top:8px}
+    .muted-small{font-size:13px;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <div class="brand">Simple<span style="color:var(--muted)">Bank</span></div>
+      <div class="sub">Sistem keuangan lokal — account unik · deposit · transfer</div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center">
+      <div class="small">Server: <strong style="color:var(--muted)" id="serverUrl">loading...</strong></div>
+      <button id="btnLogout" class="btn-ghost">Logout</button>
+    </div>
+  </header>
+
+  <div class="container">
+    <!-- LEFT: Dashboard utama -->
+    <div class="main">
+      <div class="card" id="accountCard">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div>
+            <div class="small">Nama</div>
+            <div id="ownerName" style="font-weight:700"></div>
+            <div class="muted" id="accountNumber"></div>
+          </div>
+          <div style="text-align:right">
+            <div class="small">Saldo</div>
+            <div class="balance" id="balance">Rp 0</div>
+            <div class="small" id="balance-sen" style="margin-top:6px;color:var(--muted)"></div>
+          </div>
+        </div>
+
+        <hr style="border:none;border-top:1px solid rgba(255,255,255,0.03);margin:12px 0">
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <div class="small">Deposit (Top-up publik)</div>
+            <div class="field">
+              <label for="dep_acc">Account number</label>
+              <input id="dep_acc" type="text" placeholder="Masukkan nomor account (target)" />
+            </div>
+            <div class="field">
+              <label for="dep_amount">Jumlah (Rupiah)</label>
+              <input id="dep_amount" type="number" placeholder="Contoh: 100000" />
+            </div>
+            <div class="row">
+              <button class="btn" id="btnDeposit">Deposit</button>
+              <button class="btn-ghost" id="btnFillMyAcc">Isi dengan akun saya</button>
+            </div>
+          </div>
+
+          <div>
+            <div class="small">Transfer (Authed)</div>
+            <div class="field">
+              <label for="to_acc">Ke account</label>
+              <input id="to_acc" type="text" placeholder="Account tujuan" />
+            </div>
+            <div class="field">
+              <label for="to_amount">Jumlah (Rupiah)</label>
+              <input id="to_amount" type="number" placeholder="Contoh: 25000" />
+            </div>
+            <div class="row">
+              <button class="btn" id="btnTransfer">Transfer</button>
+              <button class="btn-ghost" id="btnRefresh">Refresh</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div style="font-weight:700">Riwayat Transaksi</div>
+          <div class="small muted">Terakhir 200 transaksi</div>
+        </div>
+        <div class="txs" id="txs">Memuat transaksi...</div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Informasi & quick actions -->
+    <aside>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-weight:700">Akun & Aksi Cepat</div>
+        </div>
+        <div style="margin-bottom:8px">
+          <div class="small">Akun aktif:</div>
+          <div id="quickAccount" style="font-weight:700;margin-top:6px">-</div>
+          <div class="muted" id="quickName"></div>
+        </div>
+
+        <div style="margin-top:10px">
+          <button class="btn" id="btnCopyAcc">Salin nomor account</button>
+        </div>
+
+        <hr style="border:none;border-top:1px solid rgba(255,255,255,0.03);margin:12px 0">
+
+        <div class="small muted">Costumer Serice</div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+          <a href="https://wa.me/6281216666613" class="btn-ghost" style="text-decoration:none;display:inline-block;text-align:center">WhatsApp</a>
+          <a href="/register.html" class="btn-ghost" style="text-decoration:none;display:inline-block;text-align:center">Halaman Register</a>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+<!-- socket.io client -->
+<script src="/socket.io/socket.io.js"></script>
+
+<script>
+/* Minimal change: keep design + previous behaviors.
+   Realtime via socket.io + pending deposit flow.
+
+   IMPORTANT deployment notes:
+   - Keep `const api = '/api'` so Firebase Hosting can rewrite /api/** -> Cloud Run.
+   - To allow Socket.IO working via Firebase Hosting rewrites, add a rewrite for "/socket.io/**" to your firebase.json
+     pointing to the same Cloud Run service. Example rewrite entry (in firebase.json):
+     {
+       "source": "/socket.io/**",
+       "run": { "serviceId": "simple-bank-service", "region": "asia-southeast1" }
+     }
+   - If you prefer not to rewrite socket.io, change the socket connection to the Cloud Run origin directly (e.g. io('https://...a.run.app')).
+*/
+
+const api = '/api';
+let socket = null;
+
+function setToken(t){ if(t) localStorage.setItem('token', t); else localStorage.removeItem('token'); }
+function getToken(){ return localStorage.getItem('token'); }
+
+function rupiahFromSen(sen){
+  const rup = Math.floor((sen||0)/100);
+  return rup.toLocaleString('id-ID');
+}
+
+// show dynamic server origin in header
+document.getElementById('serverUrl').innerText = window.location.origin;
+
+async function fetchAccount(){
+  const token = getToken();
+  if(!token){ window.location.href='/login.html'; return null; }
+  try{
+    const res = await fetch(api + '/account', { headers: { Authorization: 'Bearer ' + token }});
+    if(res.status !== 200){ setToken(null); window.location.href='/login.html'; return null; }
+    const j = await res.json();
+    return j;
+  }catch(e){ console.error(e); return null; }
+}
+
+async function showAccount(){
+  const a = await fetchAccount();
+  if(!a) return;
+  document.getElementById('ownerName').innerText = a.owner_name;
+  document.getElementById('accountNumber').innerText = a.account_number;
+  document.getElementById('balance').innerText = 'Rp ' + rupiahFromSen(a.balance);
+  document.getElementById('balance-sen').innerText = '(Saldo dalam sen: ' + a.balance + ')';
+  document.getElementById('quickAccount').innerText = a.account_number;
+  document.getElementById('quickName').innerText = a.owner_name;
+  // pre-fill deposit target with my account by default for convenience
+  document.getElementById('dep_acc').value = a.account_number;
+
+  // setup socket (join room) after account shown
+  setupSocket(); 
+}
+
+async function loadTx(){
+  const token = getToken();
+  if(!token) return;
+  try{
+    const res = await fetch(api + '/transactions', { headers: { Authorization: 'Bearer ' + token }});
+    if(res.status !== 200){ document.getElementById('txs').innerText = 'Tidak dapat memuat transaksi'; return; }
+    const rows = await res.json();
+    const el = document.getElementById('txs');
+    if(!rows || rows.length===0){ el.innerHTML = '<div class="small muted">Belum ada transaksi</div>'; return; }
+    el.innerHTML = rows.map(r => {
+      const t = new Date(r.created_at).toLocaleString();
+      const amt = 'Rp ' + Math.floor(r.amount/100).toLocaleString('id-ID');
+      return `<div class="tx"><div style="display:flex;justify-content:space-between"><div style="font-weight:700">${r.type}</div><div class="small">${t}</div></div>
+        <div class="small muted">${r.related_account || ''} ${r.note? '· '+r.note : ''} ${r.status? '· '+r.status : ''}</div>
+        <div style="margin-top:8px;font-weight:600">${amt}</div></div>`;
+    }).join('');
+  }catch(e){
+    console.error(e);
+    document.getElementById('txs').innerText = 'Error memuat transaksi';
+  }
+}
+
+document.getElementById('btnLogout').addEventListener('click', ()=> {
+  setToken(null);
+  window.location.href = '/login.html';
+});
+
+// ---------- realtime socket setup ----------
+function setupSocket(){
+  try{
+    if(typeof io === 'undefined') { console.warn('socket.io client not loaded'); return; }
+    if(socket && socket.connected) {
+      // re-join room if needed
+      const myAcc = (document.getElementById('accountNumber')?.innerText || '').trim();
+      if(myAcc) socket.emit('join_room', { room: myAcc });
+      return;
+    }
+    // connect to same origin with explicit path '/socket.io'
+    // Note: ensure firebase.json rewrites "/socket.io/**" to Cloud Run OR use Cloud Run origin directly.
+    socket = io(window.location.origin, { path: '/socket.io' });
+
+    socket.on('connect', () => {
+      const myAcc = (document.getElementById('accountNumber')?.innerText || '').trim();
+      if(myAcc) socket.emit('join_room', { room: myAcc });
+    });
+    socket.on('disconnect', () => { console.log('socket disconnected'); });
+    socket.on('deposit_confirmed', (payload) => {
+      try{
+        const amtRp = Math.floor(payload.amount/100).toLocaleString('id-ID');
+        console.log('Realtime deposit_confirmed', payload);
+        showAccount();
+        loadTx();
+        const modal = document.getElementById('depositModal');
+        if(modal){
+          const pendingId = modal.dataset.pendingId;
+          if(pendingId && String(payload.pending_id) === String(pendingId)){
+            const msg = document.getElementById('depositModalMsg'); if(msg) msg.innerText = 'Deposit dikonfirmasi otomatis.';
+            setTimeout(()=> { modal.style.display='none'; }, 900);
+          }
+        }
+        alert('Deposit terkonfirmasi: Rp ' + amtRp);
+      }catch(e){ console.error(e); }
+    });
+    socket.on('deposit_rejected', (payload) => {
+      try{
+        console.log('deposit_rejected', payload);
+        const modal = document.getElementById('depositModal');
+        if(modal && String(modal.dataset.pendingId) === String(payload.pending_id)){
+          const msg = document.getElementById('depositModalMsg'); if(msg) msg.innerText = 'Deposit ditolak: ' + (payload.reason || '');
+        }
+        loadTx();
+      }catch(e){ console.error(e); }
+    });
+  }catch(e){
+    console.error('Socket setup failed', e);
+  }
+}
+
+// ---------- Deposit: modal + upload (pending) ----------
+function openDepositModalUI(targetAccount, amountRupiah){
+  let modal = document.getElementById('depositModal');
+  if(!modal){
+    const html = `
+<div id="depositModal">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div style="font-weight:700">Instruksi Transfer & Upload Bukti</div>
+      <button id="closeDepositModal" style="background:transparent;border:0;color:var(--muted);cursor:pointer">✕</button>
+    </div>
+
+    <div style="margin-bottom:12px">
+      <div style="margin-bottom:8px"><strong id="bankName">Bank Jago</strong></div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <div style="font-size:13px;color:var(--muted)">Rekening:</div>
+        <div style="font-weight:700" id="vaNumber">109125796770</div>
+        <button id="copyVa" class="btn-ghost" style="margin-left:auto">Salin</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <div style="font-size:13px;color:var(--muted)">Nama penerima:</div>
+        <div id="vaName" style="font-weight:600">Simple Bank Demo</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="font-size:13px;color:var(--muted)">Jumlah (Harap transfer exact):</div>
+        <div id="vaAmount" style="font-weight:700;margin-left:8px">Rp 0</div>
+      </div>
+    </div>
+
+    <div style="margin-top:6px;color:var(--muted);font-size:13px">
+      1) Transfer sesuai nominal ke rekening di atas melalui m-banking / ATM. <br>
+      2) Upload bukti transfer (foto/screenshot). <br>
+      3) Setelah upload, klik <strong>"Saya sudah transfer & upload bukti"</strong> untuk mengirim bukti (pending).
+    </div>
+
+    <div style="margin-top:12px">
+      <label class="muted-small">Pilih file bukti (jpg/png/pdf):</label>
+      <input type="file" id="proofFile" accept=".jpg,.jpeg,.png,.pdf" style="margin-top:8px" />
+      <div class="file-preview" id="filePreview" style="display:none"></div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button id="confirmDepositWithProof" class="btn">Saya sudah transfer & upload bukti</button>
+      <button id="cancelDeposit" class="btn-ghost">Batal</button>
+    </div>
+
+    <div id="depositModalMsg" style="margin-top:10px;color:var(--muted);font-size:13px"></div>
+  </div>
+</div>
+`;
+    document.body.insertAdjacentHTML('beforeend', html);
+    modal = document.getElementById('depositModal');
+    document.getElementById('closeDepositModal').addEventListener('click', ()=> { modal.style.display='none'; });
+    document.getElementById('cancelDeposit').addEventListener('click', ()=> { modal.style.display='none'; });
+    document.getElementById('copyVa').addEventListener('click', () => {
+      const txt = document.getElementById('vaNumber').innerText || '1234567890';
+      navigator.clipboard.writeText(txt).then(()=> {
+        const msg = document.getElementById('depositModalMsg'); if(msg) msg.innerText = 'Nomor rekening disalin';
+      });
+    });
+    document.getElementById('proofFile').addEventListener('change', handleFileSelect);
+    document.getElementById('confirmDepositWithProof').addEventListener('click', confirmDepositWithProof);
+  }
+
+  const BANK_INFO = { bankName:'Bank Jago', vaNumber:'109125796770', vaName:'Dedik Afianto' };
+  document.getElementById('bankName').innerText = BANK_INFO.bankName;
+  document.getElementById('vaNumber').innerText = BANK_INFO.vaNumber;
+  document.getElementById('vaName').innerText = BANK_INFO.vaName;
+  document.getElementById('vaAmount').innerText = 'Rp ' + Number(amountRupiah).toLocaleString('id-ID');
+
+  modal.dataset.targetAccount = targetAccount;
+  modal.dataset.amount = Number(amountRupiah);
+  modal.dataset.pendingId = '';
+  document.getElementById('filePreview').style.display = 'none';
+  document.getElementById('proofFile').value = '';
+  const msgEl = document.getElementById('depositModalMsg'); if(msgEl) msgEl.innerText = '';
+  modal.style.display = 'flex';
+}
+
+// file handling
+function handleFileSelect(e){
+  const file = e.target.files && e.target.files[0];
+  const preview = document.getElementById('filePreview');
+  if(!file || !preview) return;
+  preview.style.display = 'block';
+  preview.innerHTML = '';
+  const nameEl = document.createElement('div');
+  nameEl.className = 'muted-small';
+  nameEl.innerText = `Nama file: ${file.name} — ${Math.round(file.size/1024)} KB`;
+  preview.appendChild(nameEl);
+  if(file.type.startsWith('image/')){
+    const img = document.createElement('img');
+    img.style.maxWidth = '100%';
+    img.style.marginTop = '8px';
+    img.alt = 'Preview bukti';
+    const reader = new FileReader();
+    reader.onload = function(ev){ img.src = ev.target.result; preview.appendChild(img); };
+    reader.readAsDataURL(file);
+  } else {
+    const note = document.createElement('div');
+    note.className = 'muted-small';
+    note.style.marginTop = '8px';
+    note.innerText = 'File non-image dipilih (PDF).';
+    preview.appendChild(note);
+  }
+}
+
+// confirm deposit -> POST /api/deposit/pending
+async function confirmDepositWithProof(){
+  const modal = document.getElementById('depositModal');
+  const msgEl = document.getElementById('depositModalMsg');
+  if(!modal) return;
+  const target = modal.dataset.targetAccount;
+  const amount = Number(modal.dataset.amount || 0);
+
+  const myAcc = (document.getElementById('accountNumber')?.innerText || '').trim();
+  if(target !== myAcc){
+    alert('Deposit hanya diperbolehkan ke akun Anda sendiri.');
+    if(myAcc) document.getElementById('dep_acc').value = myAcc;
+    return;
+  }
+  if(!target || !amount || amount <= 0){ if(msgEl) msgEl.innerText = 'Data deposit tidak valid'; return; }
+
+  const fileInput = document.getElementById('proofFile');
+  const file = fileInput && fileInput.files && fileInput.files[0];
+  if(!file){ if(msgEl) msgEl.innerText = 'Silakan upload bukti transfer terlebih dahulu.'; return; }
+
+  msgEl.innerText = 'Mengunggah bukti dan mengirim permintaan (pending)...';
+  try{
+    const base64 = await fileToBase64(file);
+    const res = await fetch(api + '/deposit/pending', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ account_number: target, amount, proof_base64: base64, proof_filename: file.name })
+    });
+    const j = await res.json();
+    if(res.ok && j.pending_id){
+      msgEl.innerText = 'Bukti terkirim — menunggu verifikasi (pending #' + j.pending_id + ').';
+      modal.dataset.pendingId = j.pending_id;
+      // now wait for realtime event from server to confirm
+      return;
+    } else {
+      msgEl.innerText = 'Gagal: ' + (j.error || JSON.stringify(j));
+    }
+  }catch(err){
+    console.error(err);
+    msgEl.innerText = err.message || 'Gagal mengunggah file';
+  }
+}
+
+// helper to File->base64
+function fileToBase64(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Gagal membaca file'));
+    reader.readAsDataURL(file);
+  });
+}
+
+// attach Deposit button behavior (ensure deposit to own account)
+document.getElementById('btnDeposit').addEventListener('click', async (e) => {
+  e.preventDefault();
+  const account_number = (document.getElementById('dep_acc')?.value || '').trim();
+  const amount = Number(document.getElementById('dep_amount')?.value || 0);
+  if(!account_number || !amount || amount <= 0){ alert('Masukkan target account dan jumlah valid'); return; }
+
+  const myAccount = (document.getElementById('accountNumber')?.innerText || '').trim();
+  if(!myAccount){
+    try{ const a = await fetchAccount(); if(a && a.account_number) { document.getElementById('dep_acc').value = a.account_number; } }catch(e){}
+  }
+  if(account_number !== (document.getElementById('accountNumber')?.innerText || '').trim()){
+    alert('Deposit hanya diperbolehkan ke akun Anda sendiri. Input dikembalikan ke akun Anda.');
+    document.getElementById('dep_acc').value = (document.getElementById('accountNumber')?.innerText || '').trim();
+    return;
+  }
+
+  openDepositModalUI(account_number, amount);
+});
+
+// ---------- other existing buttons (unchanged behavior) ----------
+document.getElementById('btnFillMyAcc').addEventListener('click', async () => {
+  const a = await fetchAccount();
+  if(a) document.getElementById('dep_acc').value = a.account_number;
+});
+
+document.getElementById('btnTransfer').addEventListener('click', async () => {
+  const to_account_number = document.getElementById('to_acc').value.trim();
+  const amount = Number(document.getElementById('to_amount').value);
+  if(!to_account_number || !amount || amount <= 0){ alert('Masukkan tujuan dan jumlah valid'); return; }
+  const token = getToken();
+  if(!token){ window.location.href='/login.html'; return; }
+  try{
+    const res = await fetch(api + '/transfer', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ to_account_number, amount })
+    });
+    const j = await res.json();
+    if(res.ok) {
+      alert('Transfer sukses');
+    } else {
+      alert('Gagal: ' + (j.error || JSON.stringify(j)));
+    }
+    await showAccount();
+    await loadTx();
+  }catch(e){ alert(e.message); }
+});
+
+document.getElementById('btnRefresh').addEventListener('click', async ()=>{ await showAccount(); await loadTx(); });
+document.getElementById('btnCopyAcc').addEventListener('click', () => {
+  const val = document.getElementById('quickAccount').innerText;
+  if(!val || val==='-'){ alert('Tidak ada account aktif'); return; }
+  navigator.clipboard.writeText(val).then(()=> alert('Nomor account disalin: ' + val));
+});
+
+document.getElementById('btnLogout').addEventListener('click', ()=> {
+  setToken(null);
+  window.location.href = '/login.html';
+});
+
+// init on load
+(async function init(){
+  await showAccount();
+  await loadTx();
+})();
+</script>
+
+</body>
+</html>

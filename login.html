@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Login — Simple Bank</title>
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--accent:#06b6d4;--muted:#94a3b8}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial;color:#e6eef6;background:linear-gradient(180deg,#071022 0%,#071a2a 100%);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+    .wrap{width:100%;max-width:920px;display:grid;grid-template-columns:1fr 420px;gap:28px}
+    .hero{display:flex;flex-direction:column;justify-content:center;padding:32px;color:var(--muted)}
+    .logo{font-weight:700;color:var(--accent);font-size:28px;margin-bottom:12px}
+    h1{margin:0 0 8px;font-size:28px}
+    p.lead{margin:0 0 16px;color:var(--muted);line-height:1.5}
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:14px;padding:22px;box-shadow:0 6px 20px rgba(2,6,23,0.6);border:1px solid rgba(255,255,255,0.04)}
+    form{display:flex;flex-direction:column;gap:12px}
+    label{font-size:13px;color:var(--muted)}
+    input{padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:#e6eef6;outline:none}
+    .row{display:flex;gap:8px}
+    .btn{padding:12px;border-radius:10px;border:0;background:linear-gradient(90deg,var(--accent),#0891b2);color:#042027;font-weight:600;cursor:pointer}
+    .link{background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--muted);padding:10px;border-radius:10px;cursor:pointer}
+    .small{font-size:13px;color:var(--muted)}
+    .actions{display:flex;justify-content:space-between;align-items:center;margin-top:6px}
+    @media (max-width:880px){.wrap{grid-template-columns:1fr;}.hero{order:2;padding-top:4px}}
+    .brand-sub{color:var(--muted);font-size:13px;margin-top:8px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <div class="card">
+        <div class="logo">Simple<span style="color:var(--muted)">Bank</span></div>
+        <h1>Selamat datang kembali</h1>
+        <p class="lead">Masuk ke akunmu untuk mengelola saldo, melakukan transfer, dan melihat riwayat transaksi.</p>
+        <div class="brand-sub">Belum punya akun? <a href="/register.html" style="color:var(--accent);text-decoration:none">Daftar di sini →</a></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <h2 style="margin:0 0 8px">Login</h2>
+        <form id="loginForm" onsubmit="return false">
+          <div>
+            <label for="account">Account number</label>
+            <input id="account" placeholder="Masukkan nomor account 10 digit" required />
+          </div>
+          <div>
+            <label for="pw">Password</label>
+            <input id="pw" type="password" placeholder="Password" required />
+          </div>
+          <div class="row">
+            <button class="btn" id="btnLogin">Masuk</button>
+            <button class="link" id="btnFillDemo" type="button">Isi demo</button>
+          </div>
+          <div class="actions">
+            <small class="small">Server: <strong id="serverUrl">loading...</strong></small>
+            <small id="msg" class="small"></small>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+<script>
+/*
+  Penyesuaian:
+  - Menampilkan origin runtime (https://simplebank-979c0.web.app) di bagian Server.
+  - api = '/api' supaya rewrite Firebase Hosting -> Cloud Run bekerja.
+  - Redirect ke /index.html setelah login sukses (sesuai hosting)
+*/
+
+const api = '/api'; // gunakan rewrite di firebase.json: /api/** -> Cloud Run
+document.getElementById('serverUrl').innerText = window.location.origin || 'http://localhost';
+
+async function login(){
+  const account = document.getElementById('account').value.trim();
+  const pw = document.getElementById('pw').value;
+  if(!account || !pw){ setMsg('Isi lengkap'); return; }
+  setMsg('Mencoba...');
+  try{
+    const res = await fetch(api + '/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account_number: account, password: pw })
+    });
+    // bila server mereturn HTML (<!doctype html) maka JSON parse akan error => tangani
+    const text = await res.text();
+    let j;
+    try { j = JSON.parse(text); } catch(e) {
+      // bukan JSON = ada kemungkinan rewrite belum benar (server mengembalikan HTML)
+      setMsg('Respons bukan JSON — cek rewrite / endpoint. Response preview: ' + (text.slice(0,200)) );
+      console.error('Unexpected response (not JSON):', text);
+      return;
+    }
+
+    if(res.ok && j.token){
+      localStorage.setItem('token', j.token);
+      setMsg('Login sukses, redirect...');
+      // redirect ke dashboard. gunakan index.html agar konsisten dengan hosting rewrite.
+      setTimeout(()=> location.href = '/index.html', 400);
+    } else {
+      setMsg(j.error || JSON.stringify(j));
+    }
+  }catch(e){
+    setMsg(e.message || 'Error jaringan');
+    console.error(e);
+  }
+}
+function setMsg(t){ document.getElementById('msg').innerText = t; }
+
+document.getElementById('btnLogin').addEventListener('click', login);
+document.getElementById('btnFillDemo').addEventListener('click', ()=>{
+  // kalau mau otomatis login demo, isi account jika kamu punya contoh account.
+  // Biarkan kosong agar user memasukkan account yang benar; isi password demo
+  document.getElementById('account').value = '';
+  document.getElementById('pw').value = '123456';
+  setMsg('Password demo terisi: 123456');
+});
+
+// agar tekan Enter di input submit form juga memanggil login
+document.getElementById('loginForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  login();
+});
+</script>
+</body>
+</html>

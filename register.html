@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Register — Simple Bank</title>
+  <style>
+    :root{--bg:#071022;--accent:#06b6d4;--muted:#94a3b8}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial;color:#e6eef6;background:linear-gradient(180deg,#06121b 0%,#071a2a 100%);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+    .wrap{width:100%;max-width:920px;display:grid;grid-template-columns:420px 1fr;gap:28px}
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:14px;padding:22px;box-shadow:0 6px 20px rgba(2,6,23,0.6);border:1px solid rgba(255,255,255,0.04)}
+    h1{margin:0 0 8px;font-size:26px}
+    p.lead{margin:0 0 16px;color:var(--muted);line-height:1.5}
+    label{font-size:13px;color:var(--muted)}
+    input{padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:#e6eef6;outline:none;width:100%}
+    .row{display:flex;gap:8px}
+    .btn{padding:12px;border-radius:10px;border:0;background:linear-gradient(90deg,var(--accent),#0891b2);color:#042027;font-weight:600;cursor:pointer}
+    @media (max-width:880px){.wrap{grid-template-columns:1fr}}
+    .muted{color:var(--muted);font-size:13px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Buat akun baru</h1>
+      <p class="lead">Daftar untuk mendapatkan nomor account unik, lalu bisa deposit & transfer secara lokal.</p>
+      <form id="regForm" onsubmit="return false">
+        <div>
+          <label for="name">Nama lengkap</label>
+          <input id="name" placeholder="Nama kamu" required />
+        </div>
+        <div>
+          <label for="email">Email</label>
+          <input id="email" placeholder="email@contoh.com" required />
+        </div>
+        <div>
+          <label for="pw1">Password</label>
+          <input id="pw1" type="password" placeholder="Minimal 6 karakter" required />
+        </div>
+        <div>
+          <label for="pw2">Ulangi Password</label>
+          <input id="pw2" type="password" placeholder="Ulangi password" required />
+        </div>
+        <div style="margin-top:10px" class="row">
+          <button class="btn" id="btnReg">Daftar</button>
+          <button class="btn" id="btnDemo" type="button" style="background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--muted)">Isi contoh</button>
+        </div>
+        <div style="margin-top:10px" class="muted">Sudah punya akun? <a href="/login.html" style="color:var(--accent);text-decoration:none">Masuk</a></div>
+        <div style="margin-top:8px" id="msg" class="muted"></div>
+      </form>
+    </div>
+
+    <div class="card" style="display:flex;flex-direction:column;justify-content:center">
+      <div style="font-weight:700;color:var(--accent);font-size:22px">SimpleBank</div>
+      <div style="margin-top:8px;color:var(--muted)">Aplikasi lokal untuk demo sistem keuangan — account unik, deposit, transfer.</div>
+      <div style="margin-top:16px;color:var(--muted);font-size:13px">Server: <strong id="serverOrigin">loading...</strong></div>
+    </div>
+  </div>
+
+<script>
+/* Penyesuaian:
+   - api = '/api' (mengandalkan rewrite firebase.json -> Cloud Run)
+   - menampilkan origin runtime (window.location.origin)
+   - auto-login menangani respons non-JSON dengan pesan yang informatif
+*/
+const api = '/api';
+document.getElementById('serverOrigin').innerText = window.location.origin || 'http://localhost';
+
+function setToken(t){ if(t) localStorage.setItem('token', t); else localStorage.removeItem('token'); }
+
+// helper: parse JSON but tolerant to HTML response (if rewrite gagal)
+async function parseJsonOrText(response) {
+  const txt = await response.text();
+  try { return { ok: response.ok, json: JSON.parse(txt), text: txt }; }
+  catch (e) { return { ok: response.ok, json: null, text: txt }; }
+}
+
+// helper login setelah register sukses
+async function doAutoLoginAndRedirect(account_number, password, msgEl){
+  try{
+    msgEl.innerText = 'Mencoba login otomatis...';
+    const resLogin = await fetch(api + '/login', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ account_number, password })
+    });
+
+    const parsed = await parseJsonOrText(resLogin);
+    if(!parsed.json){
+      // tidak menerima JSON — kemungkinan rewrite belum aktif (balik HTML)
+      msgEl.innerText = 'Login otomatis gagal: respons bukan JSON. Cek rewrite / backend. Preview: ' + (parsed.text || '').slice(0,200);
+      console.error('Auto-login unexpected response (not JSON):', parsed.text);
+      return false;
+    }
+
+    const body = parsed.json;
+    if(resLogin.ok && body.token){
+      setToken(body.token);
+      msgEl.innerText = 'Login otomatis berhasil — redirecting...';
+      setTimeout(()=> { location.href = '/index.html'; }, 300);
+      return true;
+    } else {
+      msgEl.innerText = 'Registrasi sukses tapi login otomatis gagal: ' + (body.error || JSON.stringify(body));
+      return false;
+    }
+  }catch(e){
+    console.error(e);
+    msgEl.innerText = 'Login otomatis error: ' + (e.message || e);
+    return false;
+  }
+}
+
+async function register(e){
+  if(e && typeof e.preventDefault === 'function') e.preventDefault();
+  const owner_name = document.getElementById('name').value.trim();
+  const email = document.getElementById('email').value.trim();
+  const pw1 = document.getElementById('pw1').value;
+  const pw2 = document.getElementById('pw2').value;
+  const msgEl = document.getElementById('msg');
+
+  if(!owner_name||!email||!pw1){ msgEl.innerText='Isi semua field'; return }
+  if(pw1.length<6){ msgEl.innerText='Password minimal 6 karakter'; return }
+  if(pw1!==pw2){ msgEl.innerText='Password tidak cocok'; return }
+
+  msgEl.innerText='Mendaftar...';
+  try{
+    const res = await fetch(api + '/register', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({owner_name,email,password:pw1})
+    });
+
+    const parsed = await parseJsonOrText(res);
+    if(!parsed.json){
+      // server returned HTML — usually hosting rewrite not active
+      msgEl.innerText = 'Respons bukan JSON — cek rewrite / endpoint. Preview: ' + (parsed.text || '').slice(0,200);
+      console.error('Register unexpected response (not JSON):', parsed.text);
+      return;
+    }
+    const j = parsed.json;
+
+    if(res.ok && j.account_number){
+      msgEl.innerText = 'Terdaftar — nomor account: ' + j.account_number + '. Login otomatis...';
+      // lakukan auto login menggunakan account_number dan password yang baru
+      await doAutoLoginAndRedirect(j.account_number, pw1, msgEl);
+      return;
+    } else {
+      msgEl.innerText = j.error || (res.statusText || 'Registrasi gagal');
+    }
+  }catch(e){
+    console.error(e);
+    msgEl.innerText = e.message || 'Terjadi kesalahan';
+  }
+}
+
+document.getElementById('btnReg').addEventListener('click', register);
+
+document.getElementById('btnDemo').addEventListener('click', ()=> {
+  document.getElementById('name').value='Demo User';
+  document.getElementById('email').value='demo@test.com';
+  document.getElementById('pw1').value='123456';
+  document.getElementById('pw2').value='123456';
+  document.getElementById('msg').innerText='Contoh terisi';
+});
+
+// submit form on Enter
+document.getElementById('regForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  register();
+});
+</script>
+</body>
+</html>
