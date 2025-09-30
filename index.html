@@ -166,7 +166,7 @@
    - If you prefer not to rewrite socket.io, change the socket connection to the Cloud Run origin directly (e.g. io('https://...a.run.app')).
 */
 
-const api = '/api';
+const api = 'https://binpay.onrender.com/api';
 let socket = null;
 
 function setToken(t){ if(t) localStorage.setItem('token', t); else localStorage.removeItem('token'); }

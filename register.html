@@ -64,7 +64,7 @@
    - menampilkan origin runtime (window.location.origin)
    - auto-login menangani respons non-JSON dengan pesan yang informatif
 */
-const api = '/api';
+const api = 'https://binpay.onrender.com/api';
 document.getElementById('serverOrigin').innerText = window.location.origin || 'http://localhost';
 
 function setToken(t){ if(t) localStorage.setItem('token', t); else localStorage.removeItem('token'); }

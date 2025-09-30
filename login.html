@@ -70,7 +70,7 @@
   - Redirect ke /index.html setelah login sukses (sesuai hosting)
 */
 
-const api = '/api'; // gunakan rewrite di firebase.json: /api/** -> Cloud Run
+const api = 'https://binpay.onrender.com/api'; // gunakan rewrite di firebase.json: /api/** -> Cloud Run
 document.getElementById('serverUrl').innerText = window.location.origin || 'http://localhost';
 
 async function login(){
