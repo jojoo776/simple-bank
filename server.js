@@ -295,7 +295,9 @@ app.get('/api/transactions', authenticateToken, async (req, res) => {
   }
 });
 
-// POST /api/transfer  (auth)
+// POST /api/transfer
+// - if destination account exists => internal immediate transfer (unchanged behavior)
+// - if destination account NOT exists => treat as external transfer: create pending external_transfer, deduct from sender (amount + fee) and wait admin approve/reject
 app.post('/api/transfer', authenticateToken, async (req, res) => {
   try {
     const fromAcc = req.user.account_number;
@@ -305,21 +307,53 @@ app.post('/api/transfer', authenticateToken, async (req, res) => {
 
     const fromRow = await dbGet('SELECT * FROM accounts WHERE account_number = ?', [fromAcc]);
     const toRow = await dbGet('SELECT * FROM accounts WHERE account_number = ?', [to_account_number]);
-    if (!toRow) return res.status(404).json({ error: 'Tujuan tidak ditemukan' });
-    if ((fromRow.balance || 0) < amt) return res.status(400).json({ error: 'Saldo tidak cukup' });
 
-    await dbRun('UPDATE accounts SET balance = balance - ? WHERE account_number = ?', [amt, fromAcc]);
-    await dbRun('UPDATE accounts SET balance = balance + ? WHERE account_number = ?', [amt, to_account_number]);
+    // if internal destination exists -> immediate transfer
+    if (toRow) {
+      if ((fromRow.balance || 0) < amt) return res.status(400).json({ error: 'Saldo tidak cukup' });
+
+      await dbRun('UPDATE accounts SET balance = balance - ? WHERE account_number = ?', [amt, fromAcc]);
+      await dbRun('UPDATE accounts SET balance = balance + ? WHERE account_number = ?', [amt, to_account_number]);
+
+      const now = new Date().toISOString();
+      await dbRun(`INSERT INTO transactions (account_number, type, amount, related_account, created_at, note, status) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [fromAcc, 'transfer', -amt, to_account_number, now, 'transfer outgoing', 'confirmed']);
+      await dbRun(`INSERT INTO transactions (account_number, type, amount, related_account, created_at, note, status) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [to_account_number, 'transfer', amt, fromAcc, now, 'transfer incoming', 'confirmed']);
+
+      return res.json({ success: true });
+    }
+
+    // external transfer flow
+    const FEE_RP = 1500;
+    const feeSen = FEE_RP * 100;
+    const totalDebit = amt + feeSen;
+
+    if ((fromRow.balance || 0) < totalDebit) return res.status(400).json({ error: 'Saldo tidak cukup (termasuk biaya admin Rp 1.500)' });
+
+    // Deduct immediately (hold funds)
+    await dbRun('UPDATE accounts SET balance = balance - ? WHERE account_number = ?', [totalDebit, fromAcc]);
 
     const now = new Date().toISOString();
-    await dbRun(`INSERT INTO transactions (account_number, type, amount, related_account, created_at, note, status) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [fromAcc, 'transfer', -amt, to_account_number, now, 'transfer outgoing', 'confirmed']);
-    await dbRun(`INSERT INTO transactions (account_number, type, amount, related_account, created_at, note, status) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [to_account_number, 'transfer', amt, fromAcc, now, 'transfer incoming', 'confirmed']);
+    // create a single pending transaction representing the external transfer (amount stored negative to indicate outflow)
+    const note = `external transfer pending -> ${to_account_number} (fee Rp ${FEE_RP})`;
+    const r = await dbRun(`INSERT INTO transactions
+      (account_number, type, amount, related_account, created_at, note, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [fromAcc, 'external_transfer', -amt, to_account_number, now, note, 'pending']);
 
-    return res.json({ success: true });
+    // create a pending fee transaction (separate row) so admin can see fee and refund if needed
+    await dbRun(`INSERT INTO transactions
+      (account_number, type, amount, related_account, created_at, note, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [fromAcc, 'fee', -feeSen, null, now, `fee external transfer Rp ${FEE_RP}`, 'pending']);
+
+    // notify (socket) that sender balance changed
+    io.to(fromAcc).emit('external_transfer_created', { pending_id: r.lastID, account_number: fromAcc, amount: -amt, fee: -feeSen, created_at: now });
+
+    return res.json({ success: true, pending_id: r.lastID });
   } catch (err) {
-    console.error(err);
+    console.error('transfer error', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -400,9 +434,10 @@ app.get('/api/deposit/status', async (req, res) => {
   }
 });
 
-// ADMIN: list pending deposits
+// ADMIN: list pending deposits (and other pending transactions)
 app.get('/api/admin/deposits', requireAdmin, async (req, res) => {
   try {
+    // return all transactions with status 'pending' so admin can approve deposits and external transfers
     const rows = await dbAll('SELECT * FROM transactions WHERE status = ? ORDER BY id ASC', ['pending']);
     const result = rows.map(r => {
       if (r.proof_path) r.proof_url = '/uploads/' + path.basename(r.proof_path);
@@ -416,7 +451,7 @@ app.get('/api/admin/deposits', requireAdmin, async (req, res) => {
   }
 });
 
-// ADMIN: approve pending deposit
+// ADMIN: approve pending deposit / external transfer
 app.post('/api/admin/deposit/approve', requireAdmin, async (req, res) => {
   try {
     const { pending_id } = req.body;
@@ -425,18 +460,48 @@ app.post('/api/admin/deposit/approve', requireAdmin, async (req, res) => {
     if (!tx) return res.status(404).json({ error: 'Transaction not found' });
     if (tx.status !== 'pending') return res.status(400).json({ error: 'Transaction not pending' });
 
-    await dbRun('UPDATE accounts SET balance = balance + ? WHERE account_number = ?', [tx.amount, tx.account_number]);
     const now = new Date().toISOString();
-    await dbRun('UPDATE transactions SET status = ?, confirmed_at = ? WHERE id = ?', ['confirmed', now, pending_id]);
 
-    io.to(tx.account_number).emit('deposit_confirmed', {
-      pending_id,
-      account_number: tx.account_number,
-      amount: tx.amount,
-      created_at: now
-    });
+    if (tx.type === 'deposit') {
+      // deposit pending: credit account
+      await dbRun('UPDATE accounts SET balance = balance + ? WHERE account_number = ?', [tx.amount, tx.account_number]);
+      await dbRun('UPDATE transactions SET status = ?, confirmed_at = ? WHERE id = ?', ['confirmed', now, pending_id]);
 
-    return res.json({ success: true });
+      io.to(tx.account_number).emit('deposit_confirmed', {
+        pending_id,
+        account_number: tx.account_number,
+        amount: tx.amount,
+        created_at: now
+      });
+
+      return res.json({ success: true });
+    } else if (tx.type === 'external_transfer') {
+      // external transfer pending was already debited at creation; approving just confirms that it was sent
+      await dbRun('UPDATE transactions SET status = ?, confirmed_at = ? WHERE id = ?', ['confirmed', now, pending_id]);
+
+      // Optionally auto-confirm corresponding fee pending tx(s) for same account (simple heuristic)
+      const pendingFees = await dbAll('SELECT * FROM transactions WHERE account_number = ? AND type = ? AND status = ?', [tx.account_number, 'fee', 'pending']);
+      for (const f of pendingFees) {
+        await dbRun('UPDATE transactions SET status = ?, confirmed_at = ? WHERE id = ?', ['confirmed', now, f.id]);
+      }
+
+      io.to(tx.account_number).emit('external_transfer_confirmed', {
+        pending_id,
+        account_number: tx.account_number,
+        amount: tx.amount,
+        created_at: now
+      });
+
+      return res.json({ success: true });
+    } else if (tx.type === 'fee') {
+      // fee pending - confirm fee
+      await dbRun('UPDATE transactions SET status = ?, confirmed_at = ? WHERE id = ?', ['confirmed', now, pending_id]);
+      return res.json({ success: true });
+    } else {
+      // generic fallback: just mark confirmed
+      await dbRun('UPDATE transactions SET status = ?, confirmed_at = ? WHERE id = ?', ['confirmed', now, pending_id]);
+      return res.json({ success: true });
+    }
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Internal server error' });
@@ -458,7 +523,7 @@ app.get('/api/admin/deposits_all', requireAdmin, async (req, res) => {
   }
 });
 
-// ADMIN: reject a pending deposit (mark as rejected)
+// ADMIN: reject a pending deposit or external transfer (refund logic for external)
 app.post('/api/admin/deposit/reject', requireAdmin, async (req, res) => {
   try {
     const { pending_id, reason } = req.body;
@@ -468,19 +533,129 @@ app.post('/api/admin/deposit/reject', requireAdmin, async (req, res) => {
     if (tx.status !== 'pending') return res.status(400).json({ error: 'Transaction not pending' });
 
     const now = new Date().toISOString();
-    await dbRun('UPDATE transactions SET status = ?, rejected_at = ?, note = ? WHERE id = ?', ['rejected', now, reason || 'rejected by admin', pending_id]);
 
-    io.to(tx.account_number).emit('deposit_rejected', {
-      pending_id,
-      account_number: tx.account_number,
-      amount: tx.amount,
-      reason: reason || 'Ditolak oleh admin',
-      rejected_at: now
-    });
+    if (tx.type === 'deposit') {
+      // deposit pending - just mark rejected (no balance change because deposit wasn't credited)
+      await dbRun('UPDATE transactions SET status = ?, rejected_at = ?, note = ? WHERE id = ?', ['rejected', now, reason || 'rejected by admin', pending_id]);
 
-    return res.json({ success: true });
+      io.to(tx.account_number).emit('deposit_rejected', {
+        pending_id,
+        account_number: tx.account_number,
+        amount: tx.amount,
+        reason: reason || 'Ditolak oleh admin',
+        rejected_at: now
+      });
+
+      return res.json({ success: true });
+    } else if (tx.type === 'external_transfer') {
+      // external transfer: we previously deducted amount+fee at creation.
+      // Refund both the transfer amount and the associated fee transaction(s).
+      await dbRun('UPDATE transactions SET status = ?, rejected_at = ?, note = ? WHERE id = ?', ['rejected', now, reason || 'rejected by admin', pending_id]);
+
+      // Refund the transfer amount (tx.amount is negative)
+      const refundAmount = Math.abs(Number(tx.amount || 0));
+      if (refundAmount > 0) {
+        await dbRun('UPDATE accounts SET balance = balance + ? WHERE account_number = ?', [refundAmount, tx.account_number]);
+      }
+
+      // Refund related pending fee transactions (simple heuristic: same account, type 'fee', status 'pending')
+      const pendingFees = await dbAll('SELECT * FROM transactions WHERE account_number = ? AND type = ? AND status = ?', [tx.account_number, 'fee', 'pending']);
+      for (const f of pendingFees) {
+        const feeAmt = Math.abs(Number(f.amount || 0));
+        if (feeAmt > 0) {
+          await dbRun('UPDATE accounts SET balance = balance + ? WHERE account_number = ?', [feeAmt, f.account_number]);
+        }
+        await dbRun('UPDATE transactions SET status = ?, rejected_at = ?, note = ? WHERE id = ?', ['rejected', now, `Refunded because external transfer rejected. ${reason || ''}`, f.id]);
+      }
+
+      io.to(tx.account_number).emit('external_transfer_rejected', {
+        pending_id,
+        account_number: tx.account_number,
+        amount: tx.amount,
+        reason: reason || 'Ditolak oleh admin',
+        rejected_at: now
+      });
+
+      return res.json({ success: true });
+    } else if (tx.type === 'fee') {
+      // fee rejected - refund the fee
+      const feeAmt = Math.abs(Number(tx.amount || 0));
+      if (feeAmt > 0) {
+        await dbRun('UPDATE accounts SET balance = balance + ? WHERE account_number = ?', [feeAmt, tx.account_number]);
+      }
+      await dbRun('UPDATE transactions SET status = ?, rejected_at = ?, note = ? WHERE id = ?', ['rejected', now, reason || 'rejected by admin', pending_id]);
+
+      return res.json({ success: true });
+    } else {
+      // generic fallback: just mark rejected
+      await dbRun('UPDATE transactions SET status = ?, rejected_at = ?, note = ? WHERE id = ?', ['rejected', now, reason || 'rejected by admin', pending_id]);
+      return res.json({ success: true });
+    }
   } catch (err) {
-    console.error(err);
+    console.error('reject error', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// ADMIN: list users + export + diagnostics
+app.get('/api/admin/users', requireAdmin, async (req, res) => {
+  try {
+    const rows = await dbAll('SELECT account_number, owner_name, email, id, ROWID FROM users ORDER BY id DESC LIMIT 2000', []);
+    return res.json(rows || []);
+  } catch (err) {
+    console.error('admin/users error', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/admin/users/export.csv', requireAdmin, async (req, res) => {
+  try {
+    const rows = await dbAll('SELECT account_number, owner_name, email FROM users ORDER BY id DESC', []);
+    if (!rows || rows.length === 0) {
+      res.setHeader('Content-Type', 'text/plain');
+      return res.send('account_number,owner_name,email\n');
+    }
+    const csv = ['account_number,owner_name,email', ...rows.map(r => {
+      const a = String(r.account_number || '').replace(/"/g,'""');
+      const n = String(r.owner_name || '').replace(/"/g,'""');
+      const e = String(r.email || '').replace(/"/g,'""');
+      return `"${a}","${n}","${e}"`;
+    })].join('\n');
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="users_export.csv"');
+    return res.send(csv);
+  } catch (err) {
+    console.error('admin/users/export error', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/admin/diagnostics', requireAdmin, async (req, res) => {
+  try {
+    const dbPath = path.resolve(DB_PATH || path.join(__dirname, 'data.sqlite'));
+    let stat = null;
+    try { stat = fs.statSync(dbPath); } catch(e){ stat = null; }
+    const usersCountRow = await dbGet('SELECT COUNT(*) as c FROM users', []);
+    const accountsCountRow = await dbGet('SELECT COUNT(*) as c FROM accounts', []);
+    const txCountRow = await dbGet('SELECT COUNT(*) as c FROM transactions', []);
+    return res.json({
+      dbPath,
+      dbExists: !!stat,
+      dbSizeBytes: stat ? stat.size : 0,
+      dbMtime: stat ? stat.mtime : null,
+      counts: {
+        users: usersCountRow ? usersCountRow.c : 0,
+        accounts: accountsCountRow ? accountsCountRow.c : 0,
+        transactions: txCountRow ? txCountRow.c : 0
+      },
+      env: {
+        NODE_ENV: process.env.NODE_ENV || null,
+        PORT: process.env.PORT || null
+      }
+    });
+  } catch (err) {
+    console.error('admin/diagnostics error', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
