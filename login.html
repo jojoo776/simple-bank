@@ -3,58 +3,235 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Login — Simple Bank</title>
+  <title>Login — BinPay</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
   <style>
-    :root{--bg:#0f1724;--card:#0b1220;--accent:#06b6d4;--muted:#94a3b8}
+    :root{
+      --bg-1: #061223;
+      --bg-2: #071a2a;
+      --card: rgba(255,255,255,0.03);
+      --accent: #06b6d4;
+      --accent-2: #0891b2;
+      --muted: #9fb0c6;
+      --text: #e6eef6;
+      --radius: 14px;
+    }
+
     *{box-sizing:border-box}
-    body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial;color:#e6eef6;background:linear-gradient(180deg,#071022 0%,#071a2a 100%);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
-    .wrap{width:100%;max-width:920px;display:grid;grid-template-columns:1fr 420px;gap:28px}
-    .hero{display:flex;flex-direction:column;justify-content:center;padding:32px;color:var(--muted)}
-    .logo{font-weight:700;color:var(--accent);font-size:28px;margin-bottom:12px}
-    h1{margin:0 0 8px;font-size:28px}
-    p.lead{margin:0 0 16px;color:var(--muted);line-height:1.5}
-    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:14px;padding:22px;box-shadow:0 6px 20px rgba(2,6,23,0.6);border:1px solid rgba(255,255,255,0.04)}
-    form{display:flex;flex-direction:column;gap:12px}
-    label{font-size:13px;color:var(--muted)}
-    input{padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:#e6eef6;outline:none}
-    .row{display:flex;gap:8px}
-    .btn{padding:12px;border-radius:10px;border:0;background:linear-gradient(90deg,var(--accent),#0891b2);color:#042027;font-weight:600;cursor:pointer}
-    .link{background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--muted);padding:10px;border-radius:10px;cursor:pointer}
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family:'Inter', system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+      background: linear-gradient(180deg,var(--bg-1) 0%, var(--bg-2) 100%);
+      color:var(--text);
+      min-height:100vh;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:20px;
+    }
+
+    /* Container */
+    .wrap{
+      width:100%;
+      max-width:980px;
+      display:grid;
+      grid-template-columns: 1fr 420px;
+      gap:24px;
+      align-items:stretch;
+    }
+
+    /* Left / hero */
+    .hero{
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      gap:16px;
+      padding:20px;
+    }
+
+    .brandCard{
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      border-radius: var(--radius);
+      padding:22px;
+      box-shadow: 0 10px 30px rgba(2,6,23,0.6);
+      border: 1px solid rgba(255,255,255,0.04);
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+
+    .logo{display:flex;gap:12px;align-items:center}
+    .logo .mark{
+      width:56px;height:56px;border-radius:12px;
+      display:inline-grid;place-items:center;
+      font-weight:800;font-size:20px;
+      background: linear-gradient(135deg,var(--accent),var(--accent-2));
+      color:#042027;
+    }
+    .logo .word{font-size:20px;font-weight:700;color:var(--text)}
+    .logo .word span{color:var(--muted);font-weight:600;margin-left:6px}
+
+    h1{margin:0;font-size:26px}
+    p.lead{margin:0;color:var(--muted);font-size:15px;line-height:1.5}
+
+    .brand-actions{margin-top:8px;font-size:14px;color:var(--muted)}
+    .brand-actions a{color:var(--accent);text-decoration:none;font-weight:600}
+
+    /* Right / login */
+    .card{
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      border-radius: var(--radius);
+      padding:18px;
+      box-shadow: 0 10px 30px rgba(2,6,23,0.6);
+      border: 1px solid rgba(255,255,255,0.04);
+    }
+
+    .card h2{margin:0 0 8px;font-size:20px}
+
+    form{display:flex;flex-direction:column;gap:12px;margin-top:6px}
+    label{font-size:13px;color:var(--muted);margin-bottom:6px}
+
+    .field{
+      position:relative;
+    }
+
+    input{
+      width:100%;
+      padding:12px 14px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,0.04);
+      background:rgba(255,255,255,0.02);
+      color:var(--text);
+      outline:none;
+      font-size:15px;
+      transition: box-shadow .12s, transform .06s;
+      -webkit-appearance:none;
+    }
+    input::placeholder{ color: rgba(230,238,246,0.45) }
+    input:focus{
+      box-shadow: 0 8px 22px rgba(6,182,212,0.08);
+      border-color: rgba(6,182,212,0.28);
+      transform: translateY(-1px);
+    }
+
+    /* eye icon button */
+    .eye-btn{
+      position:absolute;
+      right:10px;
+      top:50%;
+      transform:translateY(-50%);
+      height:34px;
+      width:34px;
+      display:inline-grid;
+      place-items:center;
+      background:transparent;
+      border-radius:8px;
+      border:none;
+      cursor:pointer;
+      padding:4px;
+      color:var(--muted);
+    }
+    .eye-btn:active{ transform: translateY(-50%) scale(.98) }
+
+    .row{display:flex;gap:10px}
+    .btn{
+      flex:1;padding:12px;border-radius:12px;border:0;
+      background:linear-gradient(90deg,var(--accent),var(--accent-2));
+      color:#042027;font-weight:700;cursor:pointer;font-size:15px;
+      box-shadow: 0 8px 20px rgba(6,182,212,0.12);
+    }
+    .link{
+      padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,0.04);
+      background:transparent;color:var(--muted);cursor:pointer;font-weight:600;
+      min-width:120px;
+    }
+
+    .actions{display:flex;justify-content:space-between;align-items:center;margin-top:6px;gap:12px;flex-wrap:wrap}
     .small{font-size:13px;color:var(--muted)}
-    .actions{display:flex;justify-content:space-between;align-items:center;margin-top:6px}
-    @media (max-width:880px){.wrap{grid-template-columns:1fr;}.hero{order:2;padding-top:4px}}
-    .brand-sub{color:var(--muted);font-size:13px;margin-top:8px}
+    .actions .small:first-child{display:none} /* server info hidden */
+
+    #msg{color:var(--muted);min-height:18px;display:inline-block}
+
+    /* responsive adjustments for small phones */
+    @media (max-width:520px){
+      body{padding:16px}
+      .wrap{grid-template-columns:1fr;gap:14px;max-width:420px}
+      .hero{order:2;padding-top:4px}
+      .logo .mark{width:48px;height:48px;font-size:18px}
+      h1{font-size:22px}
+      .brandCard{padding:18px}
+      .card{padding:16px}
+      .row{flex-direction:column-reverse}
+      .link{width:100%}
+      .btn{width:100%}
+      input{padding:14px}
+      .eye-btn{right:8px;height:32px;width:32px}
+    }
+
+    @media (min-width:521px) and (max-width:880px){
+      .wrap{grid-template-columns:1fr;gap:18px;max-width:720px}
+      .hero{order:2}
+    }
+
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="hero">
-      <div class="card">
-        <div class="logo">Simple<span style="color:var(--muted)">Bank</span></div>
-        <h1>Selamat datang kembali</h1>
-        <p class="lead">Masuk ke akunmu untuk mengelola saldo, melakukan transfer, dan melihat riwayat transaksi.</p>
-        <div class="brand-sub">Belum punya akun? <a href="/register.html" style="color:var(--accent);text-decoration:none">Daftar di sini →</a></div>
+  <div class="wrap" role="main">
+    <div class="hero" aria-hidden="false">
+      <div class="brandCard" aria-label="Informasi aplikasi">
+        <div class="logo" aria-hidden="false">
+          <div class="mark">BP</div>
+          <div class="word">Bin<span>Pay</span></div>
+        </div>
+
+        <h1>Selamat datang kembali 👋</h1>
+        <p class="lead">Silahkan masuk untuk mengelola saldo, transfer, dan melihat riwayat transaksi dengan aman.</p>
+
+        <div class="brand-actions">Belum punya akun? <a href="/register.html">Daftar di sini →</a></div>
       </div>
     </div>
 
     <div>
-      <div class="card">
-        <h2 style="margin:0 0 8px">Login</h2>
-        <form id="loginForm" onsubmit="return false">
+      <div class="card" role="form" aria-labelledby="loginTitle">
+        <h2 id="loginTitle"> BinPay - Masuk ke akun</h2>
+        <form id="loginForm" onsubmit="return false" autocomplete="on" novalidate>
           <div>
             <label for="account">Account number</label>
-            <input id="account" placeholder="Masukkan nomor account 10 digit" required />
+            <div class="field">
+              <input id="account" name="account" placeholder="Masukkan nomor account 10 digit" required inputmode="numeric" pattern="\d*" />
+            </div>
           </div>
+
           <div>
             <label for="pw">Password</label>
-            <input id="pw" type="password" placeholder="Password" required />
+            <div class="field">
+              <input id="pw" name="pw" type="password" placeholder="Password" required />
+              <!-- eye button -->
+              <button type="button" class="eye-btn" id="togglePw" aria-label="Tampilkan password" title="Tampilkan password">
+                <!-- default: closed-eye SVG -->
+                <svg id="eyeOpen" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+                <svg id="eyeClosed" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+                  <path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a21.79 21.79 0 0 1 5.17-5.94"></path>
+                  <path d="M1 1l22 22"></path>
+                  <path d="M9.88 9.88A3 3 0 0 0 14.12 14.12"></path>
+                </svg>
+              </button>
+            </div>
           </div>
-          <div class="row">
-            <button class="btn" id="btnLogin">Masuk</button>
-            <button class="link" id="btnFillDemo" type="button">Isi demo</button>
+
+          <div class="row" style="align-items:center;">
+            <button class="btn" id="btnLogin" type="button">Masuk</button>
           </div>
-          <div class="actions">
+
+          <div class="actions" aria-live="polite">
+            <!-- Server info intentionally hidden by CSS (keperluan: jangan tampilkan "Server" teks) -->
             <small class="small">Server: <strong id="serverUrl">loading...</strong></small>
+
             <small id="msg" class="small"></small>
           </div>
         </form>
@@ -64,13 +241,13 @@
 
 <script>
 /*
-  Penyesuaian:
-  - Menampilkan origin runtime (https://simplebank-979c0.web.app) di bagian Server.
-  - api = '/api' supaya rewrite Firebase Hosting -> Cloud Run bekerja.
-  - Redirect ke /index.html setelah login sukses (sesuai hosting)
+  UI diperbarui. Fungsi login / API tidak diubah sama sekali.
+  - api tetap sama.
+  - elemen #serverUrl tetap ada agar JS sebelumnya tetap jalan.
+  - ditambahkan toggle show/hide password (tidak mengubah login behavior).
 */
 
-const api = 'https://binpay.onrender.com/api'; // gunakan rewrite di firebase.json: /api/** -> Cloud Run
+const api = 'https://binpay.onrender.com/api';
 document.getElementById('serverUrl').innerText = window.location.origin || 'http://localhost';
 
 async function login(){
@@ -89,7 +266,7 @@ async function login(){
     let j;
     try { j = JSON.parse(text); } catch(e) {
       // bukan JSON = ada kemungkinan rewrite belum benar (server mengembalikan HTML)
-      setMsg('Respons bukan JSON — cek rewrite / endpoint. Response preview: ' + (text.slice(0,200)) );
+      setMsg('Respons bukan JSON — cek endpoint. Preview: ' + (text.slice(0,200)) );
       console.error('Unexpected response (not JSON):', text);
       return;
     }
@@ -111,8 +288,6 @@ function setMsg(t){ document.getElementById('msg').innerText = t; }
 
 document.getElementById('btnLogin').addEventListener('click', login);
 document.getElementById('btnFillDemo').addEventListener('click', ()=>{
-  // kalau mau otomatis login demo, isi account jika kamu punya contoh account.
-  // Biarkan kosong agar user memasukkan account yang benar; isi password demo
   document.getElementById('account').value = '';
   document.getElementById('pw').value = '123456';
   setMsg('Password demo terisi: 123456');
@@ -123,6 +298,53 @@ document.getElementById('loginForm').addEventListener('submit', (e) => {
   e.preventDefault();
   login();
 });
+
+/* Show/Hide password logic (UI-only, tidak mengubah login flow) */
+(function(){
+  const pw = document.getElementById('pw');
+  const toggle = document.getElementById('togglePw');
+  const eyeOpen = document.getElementById('eyeOpen');
+  const eyeClosed = document.getElementById('eyeClosed');
+  let visible = false;
+
+  toggle.addEventListener('click', () => {
+    visible = !visible;
+    if(visible){
+      pw.type = 'text';
+      eyeOpen.style.display = 'none';
+      eyeClosed.style.display = 'inline';
+      toggle.setAttribute('aria-label', 'Sembunyikan password');
+      toggle.title = 'Sembunyikan password';
+    } else {
+      pw.type = 'password';
+      eyeOpen.style.display = 'inline';
+      eyeClosed.style.display = 'none';
+      toggle.setAttribute('aria-label', 'Tampilkan password');
+      toggle.title = 'Tampilkan password';
+    }
+    // fokus kembali ke input agar UX di HP nyaman
+    pw.focus();
+  });
+
+  // Allow long-press on mobile to temporarily show password (optional UX)
+  let pressTimer = null;
+  toggle.addEventListener('touchstart', () => {
+    // temporarily show on touchstart if not visible
+    if(!visible){
+      pw.type = 'text';
+      eyeOpen.style.display = 'none';
+      eyeClosed.style.display = 'inline';
+    }
+  }, {passive:true});
+  toggle.addEventListener('touchend', () => {
+    if(!visible){
+      pw.type = 'password';
+      eyeOpen.style.display = 'inline';
+      eyeClosed.style.display = 'none';
+    }
+  }, {passive:true});
+
+})();
 </script>
 </body>
 </html>

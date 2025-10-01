@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Admin — Pending & Riwayat Deposits (Auth)</title>
+  <title>Admin — Pending, Riwayat Deposits & Users (Auth)</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
     :root{ --bg:#ffffff; --muted:#666; --accent:#0891b2; --card:#f8fafc }
@@ -17,17 +17,21 @@
     table{width:100%;border-collapse:collapse;margin-top:8px}
     th,td{padding:8px;border:1px solid #e9edf2;font-size:14px}
     .small{font-size:13px;color:var(--muted)}
-    .tabs{display:flex;gap:8px;margin-bottom:10px}
+    .tabs{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
     .tab{padding:8px 10px;border-radius:8px;cursor:pointer;background:#f3f6f8;border:1px solid #e6e9ef}
     .tab.active{background:linear-gradient(90deg,var(--accent),#06b6d4);color:#042027;font-weight:700}
     .authbox{display:flex;gap:8px;align-items:center}
     .authbox > *{margin-right:8px}
-    @media(max-width:720px){ .row{flex-direction:column;align-items:stretch} .authbox{flex-direction:column;align-items:stretch} }
+    @media(max-width:720px){ .row{flex-direction:column;align-items:stretch} .authbox{flex-direction:column;align-items:stretch} .tabs{gap:6px} }
+    /* small utilities for users tab */
+    .users-controls{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+    .users-controls input{min-width:200px;padding:8px;border-radius:6px;border:1px solid #ddd}
+    .export-btn{background:#0b6f7f;color:#fff;padding:8px 10px;border-radius:6px;border:0;cursor:pointer}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h2>Admin Panel — Pending & Riwayat Deposits</h2>
+    <h2>Admin Panel — Pending, Riwayat Deposits & Users</h2>
 
     <!-- Admin auth (register/login) -->
     <div class="card" id="authCard">
@@ -61,6 +65,7 @@
           <div class="tabs">
             <div class="tab active" id="tabPending">Pending Deposits</div>
             <div class="tab" id="tabHistory">Riwayat Deposit</div>
+            <div class="tab" id="tabUsers">Users</div>
           </div>
           <div class="small">Gunakan refresh untuk memuat ulang data</div>
         </div>
@@ -75,6 +80,17 @@
 
         <!-- history list container -->
         <div id="historySection" style="display:none;margin-top:10px"></div>
+
+        <!-- users list container -->
+        <div id="usersSection" style="display:none;margin-top:10px">
+          <div class="users-controls">
+            <input id="usersSearch" placeholder="Cari account / nama / email" />
+            <button id="btnUsersSearch" class="ghost">Cari</button>
+            <button id="btnUsersClear" class="ghost">Reset</button>
+            <button id="btnExportCsv" class="export-btn">Export CSV</button>
+          </div>
+          <div id="usersContainer"><div class="small">Klik tab Users atau tekan Refresh untuk memuat daftar pengguna.</div></div>
+        </div>
       </div>
     </div>
 
@@ -83,13 +99,21 @@
       <div style="font-weight:700">Catatan</div>
       <div class="small" style="margin-top:8px">
         - Setelah login, admin token disimpan di browser dan digunakan otomatis untuk semua aksi admin.<br>
-        - Register admin memerlukan Master Admin Key (ENV ADMIN_KEY) agar tidak sembarang orang bisa membuat admin.
+        - Register admin memerlukan Master Admin Key (ENV ADMIN_KEY) agar tidak sembarang orang bisa membuat admin.<br>
+        - Endpoint Users yang dipanggil: <code>GET /admin/users</code> (pastikan backend menyediakan atau ubah path).
       </div>
     </div>
   </div>
 
 <script>
 const api = 'https://binpay.onrender.com/api';
+
+// -------------------- helpers --------------------
+function escapeHtml(s){
+  return (''+ (s || '')).replace(/[&<>"']/g, function(m){
+    return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]);
+  });
+}
 
 // admin auth helpers
 function getStoredAdminToken(){ return localStorage.getItem('adminToken') || null; }
@@ -127,7 +151,7 @@ function showAdminLoggedOut(){
   } catch(e){ showAdminLoggedIn('admin'); }
 })();
 
-// Register admin (requires master key header)
+// -------------------- auth actions --------------------
 document.getElementById('btnAdminRegister').addEventListener('click', async ()=>{
   const master = document.getElementById('masterAdminKey').value.trim();
   const username = document.getElementById('regUsername').value.trim();
@@ -145,7 +169,6 @@ document.getElementById('btnAdminRegister').addEventListener('click', async ()=>
   }catch(e){ alert('Error: ' + e.message); }
 });
 
-// Login admin
 document.getElementById('btnAdminLogin').addEventListener('click', async ()=>{
   const username = document.getElementById('loginUsername').value.trim();
   const password = document.getElementById('loginPassword').value;
@@ -157,24 +180,63 @@ document.getElementById('btnAdminLogin').addEventListener('click', async ()=>{
       body: JSON.stringify({ username, password })
     });
     const j = await res.json();
-    if(res.ok && j.token){ setStoredAdminToken(j.token); const payload = JSON.parse(atob(j.token.split('.')[1])); showAdminLoggedIn(payload.username || username); alert('Login sukses'); loadPending(); loadHistory(); }
-    else alert('Login gagal: ' + (j.error || JSON.stringify(j)));
+    if(res.ok && j.token){
+      setStoredAdminToken(j.token);
+      const payload = JSON.parse(atob(j.token.split('.')[1]));
+      showAdminLoggedIn(payload.username || username);
+      alert('Login sukses');
+      loadPending();
+      loadHistory();
+      // if Users tab open, load users too
+      if(tabUsers.classList.contains('active')) loadUsers();
+    } else alert('Login gagal: ' + (j.error || JSON.stringify(j)));
   }catch(e){ alert('Error: ' + e.message); }
 });
 
-// Logout admin
 document.getElementById('btnAdminLogout').addEventListener('click', ()=>{ setStoredAdminToken(null); showAdminLoggedOut(); alert('Logout'); });
 
-// tabs
+// -------------------- tabs --------------------
 const tabPending = document.getElementById('tabPending');
 const tabHistory = document.getElementById('tabHistory');
+const tabUsers = document.getElementById('tabUsers');
+
 const pendingSection = document.getElementById('pendingSection');
 const historySection = document.getElementById('historySection');
+const usersSection = document.getElementById('usersSection');
 
-tabPending.addEventListener('click', ()=>{ tabPending.classList.add('active'); tabHistory.classList.remove('active'); pendingSection.style.display='block'; historySection.style.display='none'; loadPending(); });
-tabHistory.addEventListener('click', ()=>{ tabHistory.classList.add('active'); tabPending.classList.remove('active'); pendingSection.style.display='none'; historySection.style.display='block'; loadHistory(); });
+tabPending.addEventListener('click', ()=> {
+  tabPending.classList.add('active');
+  tabHistory.classList.remove('active');
+  tabUsers.classList.remove('active');
+  pendingSection.style.display = 'block';
+  historySection.style.display = 'none';
+  usersSection.style.display = 'none';
+  loadPending();
+});
+tabHistory.addEventListener('click', ()=> {
+  tabHistory.classList.add('active');
+  tabPending.classList.remove('active');
+  tabUsers.classList.remove('active');
+  pendingSection.style.display = 'none';
+  historySection.style.display = 'block';
+  usersSection.style.display = 'none';
+  loadHistory();
+});
+tabUsers.addEventListener('click', ()=> {
+  tabUsers.classList.add('active');
+  tabPending.classList.remove('active');
+  tabHistory.classList.remove('active');
+  pendingSection.style.display = 'none';
+  historySection.style.display = 'none';
+  usersSection.style.display = 'block';
+  loadUsers();
+});
 
-document.getElementById('btnRefresh').addEventListener('click', ()=>{ if(tabPending.classList.contains('active')) loadPending(); else loadHistory(); });
+document.getElementById('btnRefresh').addEventListener('click', ()=> {
+  if(tabPending.classList.contains('active')) loadPending();
+  else if(tabHistory.classList.contains('active')) loadHistory();
+  else loadUsers();
+});
 
 // helper: build admin headers (prefer token over key)
 function adminHeaders(contentType = true){
@@ -189,26 +251,28 @@ function adminHeaders(contentType = true){
   return headers;
 }
 
-// load pending
+// -------------------- pending --------------------
 async function loadPending(){
   pendingSection.innerHTML = '<div class="small">Memuat pending...</div>';
   try{
     const res = await fetch(api + '/admin/deposits', { headers: adminHeaders(false) });
     if(!res.ok){
-      const j = await res.json().catch(()=>({})); pendingSection.innerHTML = `<div class="small">Error: ${res.status} ${j.error||res.statusText}</div>`; return;
+      const j = await res.json().catch(()=>({}));
+      pendingSection.innerHTML = `<div class="small">Error: ${res.status} ${j.error||res.statusText}</div>`;
+      return;
     }
     const rows = await res.json();
     if(!rows || rows.length===0){ pendingSection.innerHTML = '<div class="small">Tidak ada pending</div>'; return; }
     const html = ['<table><tr><th>ID</th><th>Akun</th><th>Jumlah</th><th>Created</th><th>Status</th><th>Proof</th><th>Aksi</th></tr>'];
     rows.forEach(r=>{
       const amount = Math.floor(r.amount/100).toLocaleString('id-ID');
-      const proof = r.proof_url ? `<a href="${r.proof_url}" target="_blank">Lihat</a>` : (r.proof_path ? r.proof_path : '-');
+      const proof = r.proof_url ? `<a href="${r.proof_url}" target="_blank" rel="noopener noreferrer">Lihat</a>` : (r.proof_path ? escapeHtml(r.proof_path) : '-');
       html.push(`<tr>
-        <td>${r.id}</td>
-        <td>${r.account_number}</td>
-        <td>Rp ${amount}</td>
-        <td>${r.created_at}</td>
-        <td>${r.status || ''}</td>
+        <td>${escapeHtml(r.id)}</td>
+        <td>${escapeHtml(r.account_number)}</td>
+        <td>Rp ${escapeHtml(amount)}</td>
+        <td>${escapeHtml(r.created_at)}</td>
+        <td>${escapeHtml(r.status || '')}</td>
         <td>${proof}</td>
         <td><button onclick="approve(${r.id})">Approve</button> <button onclick="reject(${r.id})" class="ghost">Reject</button></td>
       </tr>`);
@@ -221,7 +285,7 @@ async function loadPending(){
   }
 }
 
-// approve + reject actions
+// approve / reject (unchanged)
 async function approve(id){
   if(!confirm('Approve pending #' + id + '?')) return;
   try{
@@ -234,7 +298,6 @@ async function approve(id){
     if(res.ok){ alert('Approved'); loadPending(); loadHistory(); } else { alert('Gagal: ' + (j.error || JSON.stringify(j))); }
   }catch(e){ alert('Error: ' + e.message); }
 }
-
 async function reject(id){
   if(!confirm('Tandai pending #' + id + ' sebagai ditolak?')) return;
   const reason = prompt('Alasan reject (opsional):', 'Bukti tidak valid') || '';
@@ -249,7 +312,7 @@ async function reject(id){
   }catch(e){ alert('Error: ' + e.message); }
 }
 
-// load history
+// -------------------- history --------------------
 async function loadHistory(){
   historySection.innerHTML = '<div class="small">Memuat riwayat deposit...</div>';
   try{
@@ -267,16 +330,16 @@ function renderHistoryTable(rows){
   const html = ['<div class="small">Riwayat deposit (terbaru di atas)</div><table><tr><th>ID</th><th>Akun</th><th>Jumlah</th><th>Status</th><th>Created</th><th>Confirmed/Rejected</th><th>Proof</th></tr>'];
   rows.forEach(r=>{
     const amount = (typeof r.amount === 'number') ? Math.floor(r.amount/100).toLocaleString('id-ID') : (r.amount || '');
-    const proof = r.proof_url ? `<a href="${r.proof_url}" target="_blank">Lihat</a>` : (r.proof_path ? r.proof_path : '-');
+    const proof = r.proof_url ? `<a href="${r.proof_url}" target="_blank" rel="noopener noreferrer">Lihat</a>` : (r.proof_path ? escapeHtml(r.proof_path) : '-');
     const confirmed = r.confirmed_at || '';
     const rejected = r.rejected_at || '';
     html.push(`<tr>
-      <td>${r.id || ''}</td>
-      <td>${r.account_number || ''}</td>
-      <td>Rp ${amount}</td>
-      <td>${r.status || ''}</td>
-      <td>${r.created_at || ''}</td>
-      <td>${confirmed || rejected || ''}</td>
+      <td>${escapeHtml(r.id || '')}</td>
+      <td>${escapeHtml(r.account_number || '')}</td>
+      <td>Rp ${escapeHtml(amount)}</td>
+      <td>${escapeHtml(r.status || '')}</td>
+      <td>${escapeHtml(r.created_at || '')}</td>
+      <td>${escapeHtml(confirmed || rejected || '')}</td>
       <td>${proof}</td>
     </tr>`);
   });
@@ -284,9 +347,123 @@ function renderHistoryTable(rows){
   historySection.innerHTML = html.join('');
 }
 
-// init load
-document.getElementById('btnRefresh').addEventListener('click', ()=>{ if(tabPending.classList.contains('active')) loadPending(); else loadHistory(); });
+// -------------------- USERS: new --------------------
+// loadUsers: memanggil endpoint /admin/users (harus tersedia di backend)
+async function loadUsers(){
+  const container = document.getElementById('usersContainer');
+  container.innerHTML = '<div class="small">Memuat daftar pengguna...</div>';
+  try{
+    const res = await fetch(api + '/admin/users', { headers: adminHeaders(false) });
+    if(!res.ok){
+      // coba fallback /admin/accounts jika tersedia
+      if(res.status === 404){
+        const res2 = await fetch(api + '/admin/accounts', { headers: adminHeaders(false) }).catch(()=>null);
+        if(res2 && res2.ok){
+          const rows2 = await res2.json();
+          return renderUsers(rows2);
+        }
+      }
+      const j = await res.json().catch(()=>({}));
+      container.innerHTML = `<div class="small">Error memuat users: HTTP ${res.status} ${j.error || res.statusText}</div>`;
+      return;
+    }
+    const rows = await res.json();
+    renderUsers(rows);
+  }catch(err){
+    console.error(err);
+    container.innerHTML = `<div class="small">Error memuat users: ${err.message}</div>`;
+  }
+}
+
+function renderUsers(rows){
+  const container = document.getElementById('usersContainer');
+  if(!rows || rows.length === 0){ container.innerHTML = '<div class="small">Belum ada user terdaftar</div>'; window.__admin_users_cache = []; return; }
+  // normalize rows into expected keys then render
+  const norm = rows.map(u => ({
+    account_number: u.account_number || u.account || u.acc || '',
+    owner_name: u.owner_name || u.name || u.owner || u.username || '',
+    email: u.email || '',
+    created_at: u.created_at || u.createdAt || u.created || ''
+  }));
+  window.__admin_users_cache = norm.slice(); // cache for search/export
+
+  const html = ['<div class="small">Daftar pengguna (terbaru di atas)</div><table><thead><tr><th>Account</th><th>Nama</th><th>Email</th><th>Dibuat</th></tr></thead><tbody>'];
+  norm.forEach(u=>{
+    html.push(`<tr>
+      <td>${escapeHtml(u.account_number)}</td>
+      <td>${escapeHtml(u.owner_name)}</td>
+      <td>${escapeHtml(u.email)}</td>
+      <td>${escapeHtml(u.created_at)}</td>
+    </tr>`);
+  });
+  html.push('</tbody></table>');
+  container.innerHTML = html.join('');
+}
+
+// search & export handlers
+document.getElementById('btnUsersSearch').addEventListener('click', ()=> {
+  const q = (document.getElementById('usersSearch').value || '').trim().toLowerCase();
+  filterUsers(q);
+});
+document.getElementById('btnUsersClear').addEventListener('click', ()=> {
+  document.getElementById('usersSearch').value = '';
+  filterUsers('');
+});
+document.getElementById('usersSearch').addEventListener('keyup', (e)=> { if(e.key === 'Enter') document.getElementById('btnUsersSearch').click(); });
+
+function filterUsers(q){
+  const all = window.__admin_users_cache || [];
+  const container = document.getElementById('usersContainer');
+  if(!all.length){ container.innerHTML = '<div class="small">Belum ada data. Tekan Refresh atau buka tab Users.</div>'; return; }
+  const qq = (q||'').toLowerCase();
+  const filtered = qq ? all.filter(r =>
+    (r.account_number||'').toLowerCase().includes(qq) ||
+    (r.owner_name||'').toLowerCase().includes(qq) ||
+    (r.email||'').toLowerCase().includes(qq)
+  ) : all;
+  if(filtered.length === 0){ container.innerHTML = '<div class="small">Tidak ada hasil pencarian</div>'; return; }
+  const html = ['<div class="small">Hasil ('+filtered.length+')</div><table><thead><tr><th>Account</th><th>Nama</th><th>Email</th><th>Dibuat</th></tr></thead><tbody>'];
+  filtered.forEach(u=>{
+    html.push(`<tr>
+      <td>${escapeHtml(u.account_number)}</td>
+      <td>${escapeHtml(u.owner_name)}</td>
+      <td>${escapeHtml(u.email)}</td>
+      <td>${escapeHtml(u.created_at)}</td>
+    </tr>`);
+  });
+  html.push('</tbody></table>');
+  container.innerHTML = html.join('');
+}
+
+document.getElementById('btnExportCsv').addEventListener('click', ()=>{
+  const rows = window.__admin_users_cache || [];
+  if(!rows.length){ alert('Belum ada data untuk diexport. Muat Users terlebih dahulu.'); return; }
+  const headers = ['account_number','owner_name','email','created_at'];
+  const csv = [
+    headers.join(','),
+    ...rows.map(r => headers.map(h => `"${String(r[h]||'').replace(/"/g,'""')}"`).join(','))
+  ].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'users_export.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+});
+
+// -------------------- init --------------------
+document.getElementById('btnRefresh').addEventListener('click', ()=> {
+  if(tabPending.classList.contains('active')) loadPending();
+  else if(tabHistory.classList.contains('active')) loadHistory();
+  else loadUsers();
+});
+
+// load initial (pending)
 loadPending();
+
 </script>
 </body>
 </html>
